@@ -10,12 +10,18 @@ char req[5] = {0x01, 0x03, 0x00, 0x15, 0xE9};
 char res[18] = {0};
 
 int openPort(int comPort);
-int blockingSend(char* REQ, int fd);
-int blockingRec(char* RES, int fd);
+int blockingSend(char* REQ, int len, int fd);
+int blockingRec(char* RES, int len, int fd);
 int main() 
 {
     int fd = openPort(5);
-
+    if (fd < 0) return 1;
+    if (blockingSend(req, 5, fd) != 0) return 1;
+    sleep(1);
+    if (blockingRec(res, 18, fd) != 0) return 1;
+    for (int i = 0; i < 18; i++) fprintf("%X", res[i]);
+    
+    close(fd);
     return 0;
 }
 
@@ -24,22 +30,24 @@ int openPort(int comPort)
     char port[] = "/dev/ttyS0";
     port[9] += comPort;
     int fd;
-    fd = open(port, O_RDWR | O_NOCTTY | O_NDELAY);
+    fd = open(port, O_RDWR | O_NOCTTY);
     if (fd < 0)
     {
         perror("openPort: Unable to open port");
+        return -1;
     }
-    else
-    {
-        fcntl(fd, F_SETFL, 0);
-    }
+    fcntl(fd, F_SETFL, 0);
     struct termios options;
     tcgetattr(fd, &options);
     cfsetispeed(&options, B115200);//set baud
     cfsetospeed(&options, B115200);
     options.c_cflag |= (CLOCAL | CREAD); //dont change owner of port | Enable recieveing 
-    options.c_cflag &= ~(ICANON | ECHO | ECHOE | ISIG); //raw input
-    tcsetattr(fd, TCSANOW, &options);
+    options.c_lflag &= ~(ICANON | ECHO | ECHOE | ISIG); //raw input
+    options.c_cflag &= ~PARENB;
+    options.c_cflag &= ~CSTOPB;
+    options.c_cflag &= ~CSIZE;
+    options.c_cflag |= CS8;
+    tcsetattr(fd, TCSAFLUSH, &options);
     return fd;
 }
 
@@ -65,12 +73,13 @@ int blockingRec(char* RES, int len, int fd)
 {
     int n;
     n = read(fd, RES, len);
-    if (n != len)
+    if (n != len || RES[0] != 0x01)
     {
         printf("blocking rec: read did not get RES\n");
+        return 1;
     }
-    unsigned char CS;
-    for (int i = 0; i < len - 1; ++i) CS ^= RES[i];
+    unsigned char CS = 0xFF;
+    for (int i = 1; i < len - 1; ++i) CS ^= RES[i];
     if (CS != RES[len-1]) 
     {
         printf("blocking rec: read error checksum should be %X, but is %X\n", RES[len-1], CS);
@@ -80,7 +89,7 @@ int blockingRec(char* RES, int len, int fd)
     n = write(fd, 0x06, 1);
     if (n < 0)
     { 
-        printf("blocking rec: could not ack");
+        printf("blocking rec: could not ack\n");
         return 1;
     }
     return 0;

@@ -6,20 +6,27 @@
 #include <termios.h>
 #include <unistd.h>
 
-char req[5] = {0x01, 0x03, 0x00, 0x15, 0xE9};
-char res[18] = {0};
+unsigned char req[5] = {0x01, 0x03, 0x00, 0x15, 0xE9};
+unsigned char res[18] = {0};
 
 int openPort(int comPort);
 int blockingSend(char* REQ, int len, int fd);
-int blockingRec(char* RES, int len, int fd);
+int blockingRec(unsigned char* RES, int len, int fd);
 int main() 
 {
     int fd = openPort(5);
     if (fd < 0) return 1;
-    if (blockingSend(req, 5, fd) != 0) return 1;
-    sleep(1);
-    if (blockingRec(res, 18, fd) != 0) return 1;
-    for (int i = 0; i < 18; i++) fprintf("%X", res[i]);
+    if (blockingSend(req, 5, fd) != 0) {
+        printf("blocking Send returned 1\n");
+        return 1;
+    }
+    if (blockingRec(res, 18, fd) != 0) {
+        printf("blocking rec returned 1\n");
+        return 1;
+    }
+    printf("Returned message is:\n");
+    for (int i = 0; i < 18; i++) printf("0x%02x ", res[i]);
+    printf("\n");
     
     close(fd);
     return 0;
@@ -47,6 +54,8 @@ int openPort(int comPort)
     options.c_cflag &= ~CSTOPB;
     options.c_cflag &= ~CSIZE;
     options.c_cflag |= CS8;
+    options.c_cc[VTIME] = 15;
+    options.c_cc[VMIN] = 1;
     tcsetattr(fd, TCSAFLUSH, &options);
     return fd;
 }
@@ -64,14 +73,15 @@ int blockingSend(char* REQ, int len, int fd)
     n = read(fd, RES, 1);
     if (n != 1 || RES[0] != 0x06)
     {
-        fprintf("blocking send:read did not get ack, instead got %X\n", RES[0]);
+        printf("blocking send:read did not get ack, instead got %X\n", RES[0]);
         return 1;
     }    
     return 0;
 }
-int blockingRec(char* RES, int len, int fd)
+int blockingRec( unsigned char* RES, int len, int fd)
 {
     int n;
+    unsigned char ACK[1] = {0x06};
     n = read(fd, RES, len);
     if (n != len || RES[0] != 0x01)
     {
@@ -86,10 +96,10 @@ int blockingRec(char* RES, int len, int fd)
         n = write(fd, 0x15, 1);//NAK
         return 1;
     }
-    n = write(fd, 0x06, 1);
+    n = write(fd, ACK, 1);
     if (n < 0)
     { 
-        printf("blocking rec: could not ack\n");
+        perror("blocking rec: could not ack");
         return 1;
     }
     return 0;

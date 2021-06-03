@@ -24,8 +24,10 @@ int main()
         printf("blocking rec returned 1\n");
         return 1;
     }
-    printf("Returned message is:\n");
+    printf("Returned raw message is:\n");
     for (int i = 0; i < 18; i++) printf("0x%02x ", res[i]);
+    printf("\nmessage text:\n");
+    for (int i = 0; i < 17; i++) printf("%c", res[i]);
     printf("\n");
     
     close(fd);
@@ -43,7 +45,6 @@ int openPort(int comPort)
         perror("openPort: Unable to open port");
         return -1;
     }
-    fcntl(fd, F_SETFL, 0);
     struct termios options;
     tcgetattr(fd, &options);
     cfsetispeed(&options, B115200);//set baud
@@ -54,8 +55,6 @@ int openPort(int comPort)
     options.c_cflag &= ~CSTOPB;
     options.c_cflag &= ~CSIZE;
     options.c_cflag |= CS8;
-    options.c_cc[VTIME] = 15;
-    options.c_cc[VMIN] = 1;
     tcsetattr(fd, TCSAFLUSH, &options);
     return fd;
 }
@@ -73,7 +72,7 @@ int blockingSend(char* REQ, int len, int fd)
     n = read(fd, RES, 1);
     if (n != 1 || RES[0] != 0x06)
     {
-        printf("blocking send:read did not get ack, instead got %X\n", RES[0]);
+        printf("blocking send:read did not get ack, instead got 0x%02X\n", RES[0]);
         return 1;
     }    
     return 0;
@@ -92,8 +91,9 @@ int blockingRec( unsigned char* RES, int len, int fd)
     for (int i = 1; i < len - 1; ++i) CS ^= RES[i];
     if (CS != RES[len-1]) 
     {
-        printf("blocking rec: read error checksum should be %X, but is %X\n", RES[len-1], CS);
-        n = write(fd, 0x15, 1);//NAK
+        printf("blocking rec: read error checksum should be 0x%02X, but is %02X\n", RES[len-1], CS);
+        char NAK[1] = {0x15};
+        n = write(fd, NAK, 1);//NAK
         return 1;
     }
     n = write(fd, ACK, 1);
